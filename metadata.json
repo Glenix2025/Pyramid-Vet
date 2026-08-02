@@ -1,0 +1,6 @@
+{
+  "name": "Pyramid Vet Chatbot",
+  "description": "Customer-facing chatbot widget for Pyramid Veterinary Surgery in Gordonvale, QLD.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
