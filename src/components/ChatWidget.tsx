@@ -26,6 +26,38 @@ const QUICK_SUGGESTIONS = [
   "Can I get medications renewed?"
 ];
 
+// Helper to clean up any markdown links, raw URLs, or ** asterisks from chat output
+function sanitizeChatText(text: string): string {
+  if (!text) return '';
+  let cleaned = text;
+
+  // Remove markdown links e.g. [label](url)
+  cleaned = cleaned.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
+    if (label.startsWith('http') || label.includes('pyramidvet') || url.includes('pyramidvet')) {
+      return '';
+    }
+    return label;
+  });
+
+  // Remove standalone HTTP/HTTPS URLs
+  cleaned = cleaned.replace(/https?:\/\/[^\s\)]+/gi, '');
+
+  // Remove all markdown ** asterisks
+  cleaned = cleaned.replace(/\*\*/g, '');
+
+  // Clean orphan words or leftover parens/brackets
+  cleaned = cleaned.replace(/\(\s*\)/g, '');
+  cleaned = cleaned.replace(/\[\s*\]/g, '');
+  cleaned = cleaned.replace(/\b(at|via|on|page)\s*[\.,]/gi, '.');
+  cleaned = cleaned.replace(/\b(at|via|on|page)\s*$/gi, '');
+
+  // Clean spacing and orphan punctuation
+  cleaned = cleaned.replace(/\s+/g, ' ');
+  cleaned = cleaned.replace(/\s+([\.,!\?])/g, '$1');
+
+  return cleaned.trim();
+}
+
 export const ChatWidget: React.FC<ChatWidgetProps> = ({
   isEmbedded = false,
   onClose,
@@ -38,7 +70,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
       text: `Hello! Welcome to Pyramid Veterinary Surgery in Gordonvale, QLD. How can we assist you and your pet today?`,
       timestamp: new Date(),
       suggestedActions: [
-        { type: 'booking', label: 'Book Appointment Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
+        { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
         { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone }
       ]
     }
@@ -102,40 +134,43 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
 
       const data = await res.json();
       
-      const botMessage: ChatMessage = {
-        id: `bot-${Date.now()}`,
-        sender: 'bot',
-        text: data.text,
-        timestamp: new Date(),
-        isOutsideFAQ: data.isOutsideFAQ,
-        suggestedActions: [
-          { type: 'booking', label: 'Book Appointment Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
-          { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone }
-        ]
-      };
-
-      setMessages(prev => [...prev, botMessage]);
-      speakText(data.text);
-    } catch (err) {
-      console.warn('API route call fallback to local FAQ matcher:', err);
-      // Seamless local match fallback
-      const localResult = matchFAQLocal(query);
+      const cleanText = sanitizeChatText(data.text);
       
       const botMessage: ChatMessage = {
         id: `bot-${Date.now()}`,
         sender: 'bot',
-        text: localResult.text,
+        text: cleanText,
         timestamp: new Date(),
-        isOutsideFAQ: localResult.isOutsideFAQ,
-        faqSourceId: localResult.item?.id,
+        isOutsideFAQ: data.isOutsideFAQ,
         suggestedActions: [
-          { type: 'booking', label: 'Book Appointment Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
+          { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
           { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone }
         ]
       };
 
       setMessages(prev => [...prev, botMessage]);
-      speakText(localResult.text);
+      speakText(cleanText);
+    } catch (err) {
+      console.warn('API route call fallback to local FAQ matcher:', err);
+      // Seamless local match fallback
+      const localResult = matchFAQLocal(query);
+      const cleanText = sanitizeChatText(localResult.text);
+      
+      const botMessage: ChatMessage = {
+        id: `bot-${Date.now()}`,
+        sender: 'bot',
+        text: cleanText,
+        timestamp: new Date(),
+        isOutsideFAQ: localResult.isOutsideFAQ,
+        faqSourceId: localResult.item?.id,
+        suggestedActions: [
+          { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
+          { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone }
+        ]
+      };
+
+      setMessages(prev => [...prev, botMessage]);
+      speakText(cleanText);
     } finally {
       setIsLoading(false);
     }
@@ -268,7 +303,7 @@ export const ChatWidget: React.FC<ChatWidgetProps> = ({
                   : 'bg-white text-slate-700 border border-slate-200 rounded-tl-none shadow-xs'
               }`}
             >
-              <p className="whitespace-pre-line">{msg.text}</p>
+              <p className="whitespace-pre-line">{sanitizeChatText(msg.text)}</p>
 
               {/* Outside FAQ / Special Emergency Callout */}
               {msg.isOutsideFAQ && (

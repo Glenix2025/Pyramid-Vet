@@ -36,20 +36,52 @@ CLINIC INFORMATION:
 - Name: Pyramid Veterinary Surgery
 - Address: 181–183 Dempsey Street, Gordonvale, QLD 4865
 - Phone & After-Hours Contact: 07 4056-5989
-- Online Booking URL: https://www.pyramidvet.com.au/BookAppointmentOnline.aspx
-- Tagline: "Personalised service and quality care for your pets" / "Modern, professional and affordable health care for your pets"
+- Online Booking: Available via the "Book Online" button
+- Tagline: "Personalised service and quality care for your pets"
 - Opening Hours: Mon–Fri 7:30am–1:30pm, Sat 8:00am–11:30am, Closed Sunday.
 
-CRITICAL BEHAVIOR RULES:
-1. Maintain a warm, friendly, reassuring, community-rooted, and professional tone.
-2. ANSWER ONLY FROM THE KNOWLEDGE BASE BELOW. DO NOT INVENT FACTS OR ASSUME UNLISTED SERVICES.
-3. FOR ANYTHING OUTSIDE THE KNOWLEDGE BASE (e.g. specific medical diagnosis/symptoms, specific unlisted pricing, medical emergencies, or unconfirmed payment methods), YOU MUST RESPOND WITH: "Please call us on 07 4056-5989" and explain that our team will gladly assist directly.
-4. ALWAYS mention our real online booking page (https://www.pyramidvet.com.au/BookAppointmentOnline.aspx) or phone number (07 4056-5989) whenever clients ask about appointments, bookings, or contacting us.
-5. NEVER invent payment methods, insurance processing rules beyond what is listed, or team member names.
+CRITICAL FORMATTING & BEHAVIOR RULES:
+1. DO NOT output markdown bold asterisks (**). Always write plain text without any ** formatting.
+2. DO NOT output raw URLs or markdown link syntax (e.g. no [url](url), no [Book Online](url), no raw https:// links).
+3. DO NOT write duplicate website URLs or link wordings. Simply refer to booking online or calling us. An interactive "Book Online" button is automatically rendered below your response.
+4. Maintain a warm, friendly, reassuring, community-rooted, and professional tone.
+5. ANSWER ONLY FROM THE KNOWLEDGE BASE BELOW. DO NOT INVENT FACTS OR ASSUME UNLISTED SERVICES.
+6. FOR ANYTHING OUTSIDE THE KNOWLEDGE BASE (e.g. specific medical diagnosis/symptoms, specific unlisted pricing, medical emergencies, or unconfirmed payment methods), YOU MUST RESPOND WITH: "Please call us on 07 4056-5989" and explain that our team will gladly assist directly.
 
 OFFICIAL FAQ KNOWLEDGE BASE:
 ${FAQ_KNOWLEDGE_BASE.map(item => `${item.id}. ${item.question} -> ${item.answer}`).join('\n')}
 `;
+
+export function sanitizeChatText(text: string): string {
+  if (!text) return '';
+  let cleaned = text;
+
+  // Remove markdown links e.g. [label](url)
+  cleaned = cleaned.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
+    if (label.startsWith('http') || label.includes('pyramidvet') || url.includes('pyramidvet')) {
+      return '';
+    }
+    return label;
+  });
+
+  // Remove standalone HTTP/HTTPS URLs
+  cleaned = cleaned.replace(/https?:\/\/[^\s\)]+/gi, '');
+
+  // Remove all markdown ** asterisks
+  cleaned = cleaned.replace(/\*\*/g, '');
+
+  // Clean orphan brackets or leftover empty parens
+  cleaned = cleaned.replace(/\(\s*\)/g, '');
+  cleaned = cleaned.replace(/\[\s*\]/g, '');
+  cleaned = cleaned.replace(/\b(at|via|on|page)\s*[\.,]/gi, '.');
+  cleaned = cleaned.replace(/\b(at|via|on|page)\s*$/gi, '');
+
+  // Clean spacing and orphan punctuation
+  cleaned = cleaned.replace(/\s+/g, ' ');
+  cleaned = cleaned.replace(/\s+([\.,!\?])/g, '$1');
+
+  return cleaned.trim();
+}
 
 // API endpoint for Chatbot
 app.post('/api/chat', async (req, res) => {
@@ -67,29 +99,31 @@ app.post('/api/chat', async (req, res) => {
       // Fallback to deterministic local match if API key isn't present
       const localRes = matchFAQLocal(message);
       res.json({
-        text: localRes.text,
+        text: sanitizeChatText(localRes.text),
         isOutsideFAQ: localRes.isOutsideFAQ,
         suggestedActions: [
-          { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone },
-          { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl }
+          { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
+          { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone }
         ]
       });
       return;
     }
 
     // Call Gemini 3.6 Flash
-    const formattedPrompt = `User Query: "${message}"\n\nInstructions: Respond concisely based ONLY on the Pyramid Veterinary Surgery FAQ knowledge base.`;
+    const formattedPrompt = `User Query: "${message}"\n\nInstructions: Respond concisely based ONLY on the Pyramid Veterinary Surgery FAQ knowledge base. Do NOT use ** or write raw URLs.`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.6-flash',
       contents: formattedPrompt,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.2
+        temperature: 0.1
       }
     });
 
-    const replyText = response.text || "Please call us on 07 4056-5989";
+    const rawReply = response.text || "Please call us on 07 4056-5989";
+    const replyText = sanitizeChatText(rawReply);
+
     const isOutsideFAQ = replyText.includes("07 4056-5989") && (
       replyText.toLowerCase().includes("please call") || 
       replyText.toLowerCase().includes("outside") ||
@@ -100,7 +134,7 @@ app.post('/api/chat', async (req, res) => {
       text: replyText,
       isOutsideFAQ,
       suggestedActions: [
-        { type: 'booking', label: 'Book Appointment Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
+        { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
         { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone }
       ]
     });
@@ -109,11 +143,11 @@ app.post('/api/chat', async (req, res) => {
     // Graceful error fallback
     const localRes = matchFAQLocal(req.body?.message || '');
     res.json({
-      text: localRes.text,
+      text: sanitizeChatText(localRes.text),
       isOutsideFAQ: localRes.isOutsideFAQ,
       suggestedActions: [
-        { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone },
-        { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl }
+        { type: 'booking', label: 'Book Online', urlOrNumber: PYRAMID_CLINIC_INFO.bookingUrl },
+        { type: 'phone', label: 'Call 07 4056-5989', urlOrNumber: PYRAMID_CLINIC_INFO.phone }
       ]
     });
   }
